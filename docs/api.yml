@@ -1,0 +1,2036 @@
+openapi: "3.0.3"
+info:
+  title: FinanceApi
+  version: "1.0"
+servers:
+  - url: http://localhost:8080
+security:
+  - BearerAuth: []
+
+tags:
+  - name: auth
+    description: Authentication and health check
+  - name: label
+    description: Label management
+  - name: wallet
+    description: Wallet management
+  - name: transaction
+    description: Transaction management
+  - name: goal
+    description: Goal management
+  - name: project
+    description: Project and budget management
+  - name: configuration
+    description: Account configuration and subscription management
+
+paths:
+
+  # ─── AUTH ─────────────────────────────────────────────────────────────────────
+  /auth/sign-up:
+    post:
+      tags: [auth]
+      security: []
+      summary: >
+        Create a new account.
+        Requires a unique username AND a unique email.
+        Password must be at least 8 characters. Username must be at least 4 characters.
+        Returns 400 if username or email is already taken (distinct error messages).
+      operationId: signUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignUpCredentials"
+      responses:
+        "200":
+          description: Account created — returns id, username and email (password excluded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignUpResult"
+        "400":
+          description: >
+            Username or email already taken, or validation error
+            (password < 8 chars, username < 4 chars, invalid email format)
+
+  /auth/sign-in:
+    post:
+      tags: [auth]
+      security: []
+      summary: >
+        Login with email and password.
+        Returns a JWT token valid for 10 hours.
+        The token embeds id, username and email.
+      operationId: signIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInCredentials"
+      responses:
+        "200":
+          description: Authenticated — returns account info and JWT token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResult"
+        "400":
+          description: Bad password
+        "404":
+          description: Account not found for this email
+
+  /auth/sign-in/google:
+    post:
+      tags: [auth]
+      security: []
+      summary: >
+        Login or register with a Google account.
+        Accepts a Google id_token obtained from the Google Sign-In SDK on the client.
+        Three cases are handled automatically:
+        (1) googleId already known — direct login;
+        (2) email already exists but not yet linked — googleId is attached and login proceeds;
+        (3) unknown email — new account created automatically (no password set).
+        Returns the same JWT format as POST /auth/sign-in, valid for 10 hours.
+      operationId: signInWithGoogle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleSignInCredentials"
+      responses:
+        "200":
+          description: >
+            Authenticated — returns account info and JWT token.
+            The account may have been created automatically if it did not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResult"
+        "400":
+          description: >
+            idToken is missing, empty, or rejected by Google
+            (expired, wrong audience, tampered signature).
+
+  # ─── HEALTH ───────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      tags: [auth]
+      security: []
+      summary: Check server uptime and database connectivity
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Server is up and database is reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResult"
+        "503":
+          description: Server is up but database is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthErrorResult"
+
+  # ─── LABEL ────────────────────────────────────────────────────────────────────
+  /account/{accountId}/label:
+    get:
+      tags: [label]
+      summary: >
+        Get all labels for the specified account.
+        Paginated. Only non-archived labels are returned.
+        Supports partial name search (case-insensitive).
+      operationId: getAllLabels
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: Paginated list of non-archived labels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAllLabelsResponse"
+
+    post:
+      tags: [label]
+      summary: >
+        Create a new label for the specified account.
+        Name must be unique among non-archived labels for this account.
+      operationId: createOneLabel
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationLabel"
+      responses:
+        "200":
+          description: Created label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+        "400":
+          description: A label with this name already exists for this account
+
+  /account/{accountId}/label/{labelId}:
+    get:
+      tags: [label]
+      summary: Get one label by id
+      operationId: getOneLabel
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/LabelId"
+      responses:
+        "200":
+          description: Label found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+        "404":
+          description: Label not found or archived
+
+    put:
+      tags: [label]
+      summary: >
+        Update one label by id.
+        Name must be unique among non-archived labels for this account.
+        Requires accountId in the body to match the authenticated account.
+      operationId: updateOneLabel
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/LabelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Label"
+      responses:
+        "200":
+          description: Updated label
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+        "400":
+          description: A label with this name already exists
+        "403":
+          description: Label belongs to another account
+        "404":
+          description: Label not found or archived
+
+  /account/{accountId}/label/{labelId}/archive:
+    post:
+      tags: [label]
+      summary: >
+        Archive one label by id.
+        Archiving is permanent — there is no unarchive endpoint.
+        Archived labels are excluded from getAllLabels and return 404 on getOneLabel.
+      operationId: archiveOneLabel
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/LabelId"
+      responses:
+        "200":
+          description: Archived label — isArchived is now true
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Label"
+        "404":
+          description: Label not found
+
+  # ─── WALLET ───────────────────────────────────────────────────────────────────
+  /account/{accountId}/wallet:
+    get:
+      tags: [wallet]
+      summary: >
+        Get all wallets for the specified account.
+        Paginated. Only non-archived wallets are returned.
+        Supports filtering by name (partial), isActive, and walletType.
+        The amount field is read-only and computed from transactions — it cannot be set directly.
+      operationId: getAllWallets
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/IsActive"
+        - $ref: "#/components/parameters/WalletType"
+      responses:
+        "200":
+          description: Paginated list of non-archived wallets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAllWalletsResponse"
+
+    post:
+      tags: [wallet]
+      summary: >
+        Create a new wallet.
+        isActive defaults to true. amount starts at 0 — managed exclusively via transactions.
+        Name must be unique for this account.
+      operationId: createOneWallet
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationWallet"
+      responses:
+        "200":
+          description: Created wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          description: A wallet with this name already exists for this account
+
+  /account/{accountId}/wallet/{walletId}:
+    get:
+      tags: [wallet]
+      summary: Get one wallet by id
+      operationId: getOneWallet
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+      responses:
+        "200":
+          description: Wallet found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "404":
+          description: Wallet not found or archived
+
+    put:
+      tags: [wallet]
+      summary: >
+        Update one wallet by id.
+        The amount field is excluded from update — managed exclusively via transactions.
+        Requires accountId in the body to match the authenticated account.
+      operationId: updateOneWallet
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWallet"
+      responses:
+        "200":
+          description: Updated wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          description: A wallet with this name already exists
+        "403":
+          description: accountId in body does not match authenticated account
+        "404":
+          description: Wallet not found
+
+  /account/{accountId}/wallet/{walletId}/archive:
+    post:
+      tags: [wallet]
+      summary: >
+        Archive one wallet by id.
+        Archiving is permanent — there is no unarchive endpoint.
+        Archived wallets are excluded from getAllWallets and return 404 on getOneWallet.
+      operationId: archiveOneWallet
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+      responses:
+        "200":
+          description: Archived wallet — isArchived is now true
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "404":
+          description: Wallet not found or already archived
+
+  /account/{accountId}/wallet/{walletId}/automaticIncome:
+    put:
+      tags: [wallet]
+      summary: >
+        Update automatic income configuration for a wallet.
+        Only two frequencies supported: MENSUAL (monthly) and NOT_SPECIFIED (disabled).
+        When type=MENSUAL, amount and paymentDay (1-31) are required.
+        When type=NOT_SPECIFIED, amount is reset to 0 and paymentDay to null.
+        Note: the backend stores this configuration only — no scheduled job applies
+        the income automatically in the current implementation.
+      operationId: updateOneWalletAutomaticIncome
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletAutomaticIncome"
+      responses:
+        "200":
+          description: Updated wallet with new automatic income configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          description: Invalid type, or amount/paymentDay missing when type=MENSUAL
+        "404":
+          description: Wallet not found
+
+  # ─── TRANSACTION ──────────────────────────────────────────────────────────────
+  /account/{accountId}/transaction:
+    get:
+      tags: [transaction]
+      summary: >
+        Get all transactions for the specified account across all wallets.
+        Returns a flat array (no pagination wrapper despite page/pageSize params).
+        Supports filtering by walletId, date range, type, labels, amount range, and sort.
+      operationId: getAllTransactions
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/QueryWalletId"
+        - $ref: "#/components/parameters/StartingDate"
+        - $ref: "#/components/parameters/EndingDate"
+        - $ref: "#/components/parameters/TransactionType"
+        - $ref: "#/components/parameters/TransactionLabel"
+        - $ref: "#/components/parameters/MinAmount"
+        - $ref: "#/components/parameters/MaxAmount"
+        - $ref: "#/components/parameters/TransactionSortBy"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Flat array of transactions (no pagination wrapper)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
+  /account/{accountId}/wallet/{walletId}/transaction:
+    post:
+      tags: [transaction]
+      summary: >
+        Create a new transaction for the specified wallet.
+        At least one label is required.
+        Wallet amount is updated immediately upon creation.
+        IN transactions increase the wallet amount, OUT transactions decrease it.
+        goalId is optional — links the transaction to a specific goal.
+      operationId: createOneTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationTransaction"
+      responses:
+        "200":
+          description: Created transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "400":
+          description: Missing or empty labels array, or invalid date/type
+
+  /account/{accountId}/wallet/{walletId}/transaction/{transactionId}:
+    get:
+      tags: [transaction]
+      summary: Get one transaction by id
+      operationId: getOneTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/TransactionId"
+      responses:
+        "200":
+          description: Transaction found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Transaction not found
+
+    put:
+      tags: [transaction]
+      summary: >
+        Update one transaction by id.
+        At least one label is required.
+        Requires accountId in the body to match the authenticated account.
+        If the amount changes, the wallet balance is adjusted by the difference.
+      operationId: updateOneTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/TransactionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Transaction"
+      responses:
+        "200":
+          description: Updated transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "400":
+          description: Missing or empty labels array
+        "403":
+          description: Transaction belongs to another account
+
+    delete:
+      tags: [transaction]
+      summary: >
+        Delete one transaction permanently.
+        Wallet amount is reverted accordingly:
+        deleting an IN transaction decreases the wallet, deleting an OUT increases it.
+      operationId: removeOneTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/TransactionId"
+      responses:
+        "200":
+          description: Deleted transaction — wallet amount has been reverted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Transaction not found
+
+  # ─── GOAL ─────────────────────────────────────────────────────────────────────
+  /account/{accountId}/goal:
+    get:
+      tags: [goal]
+      summary: >
+        Get all goals for the specified account. Paginated. Only non-archived goals are returned.
+        startingDateBeginning/startingDateEnding filter the goal's startingDate field.
+        endingDateBeginning/endingDateEnding filter the goal's endingDate field.
+        Default sort: createdAt desc.
+      operationId: getAllGoals
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/QueryWalletId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/MinAmount"
+        - $ref: "#/components/parameters/MaxAmount"
+        - $ref: "#/components/parameters/StartingDateBeginning"
+        - $ref: "#/components/parameters/StartingDateEnding"
+        - $ref: "#/components/parameters/EndingDateBeginning"
+        - $ref: "#/components/parameters/EndingDateEnding"
+        - $ref: "#/components/parameters/GoalSortBy"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Paginated list of non-archived goals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAllGoalsResponse"
+
+  /account/{accountId}/wallet/{walletId}/goal:
+    post:
+      tags: [goal]
+      summary: >
+        Create a new goal for the specified wallet.
+        walletId in the body must match the walletId path parameter.
+        startingDate must be before or equal to endingDate.
+        Goal names must be unique per wallet among non-archived goals.
+      operationId: createOneGoal
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationGoal"
+      responses:
+        "200":
+          description: Created goal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+        "400":
+          description: Invalid dates, walletId mismatch, or goal name already exists for this wallet
+
+  /account/{accountId}/wallet/{walletId}/goal/{goalId}:
+    get:
+      tags: [goal]
+      summary: Get one goal by id
+      operationId: getOneGoal
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/GoalId"
+      responses:
+        "200":
+          description: Goal found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+        "404":
+          description: Goal not found or archived
+
+    put:
+      tags: [goal]
+      summary: >
+        Update one goal by id.
+        startingDate must be before or equal to endingDate.
+        Goal names must be unique per wallet among non-archived goals.
+        Requires accountId in the body to match the authenticated account.
+      operationId: updateOneGoal
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/GoalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Goal"
+      responses:
+        "200":
+          description: Updated goal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+        "400":
+          description: Invalid dates or goal name already taken
+        "403":
+          description: Goal belongs to another account
+        "404":
+          description: Goal not found or archived
+
+  /account/{accountId}/wallet/{walletId}/goal/{goalId}/archive:
+    post:
+      tags: [goal]
+      summary: >
+        Archive one goal by id.
+        Archiving is permanent — there is no unarchive endpoint.
+        Archived goals are excluded from getAllGoals and return 404 on getOneGoal.
+      operationId: archiveOneGoal
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/GoalId"
+      responses:
+        "200":
+          description: Archived goal — isArchived is now true
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Goal"
+        "404":
+          description: Goal not found
+
+  # ─── PROJECT ──────────────────────────────────────────────────────────────────
+  /account/{accountId}/project:
+    get:
+      tags: [project]
+      summary: >
+        Get all projects for the specified account.
+        Returns a flat array (no pagination wrapper).
+        Defaults to non-archived projects (isArchived=false).
+        Pass isArchived=true to retrieve archived projects.
+        Supports partial name search.
+      operationId: getAllProjects
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/ProjectIsArchived"
+      responses:
+        "200":
+          description: Flat array of projects (no pagination wrapper)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+
+    post:
+      tags: [project]
+      summary: Create a new project for the specified account
+      operationId: createOneProject
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationProject"
+      responses:
+        "200":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Validation error (missing name or initialBudget)
+
+  /account/{accountId}/project/{projectId}:
+    get:
+      tags: [project]
+      summary: Get one project by id
+      operationId: getOneProject
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Project not found or archived
+
+    put:
+      tags: [project]
+      summary: Update one project by id
+      operationId: updateOneProject
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationProject"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Validation error
+        "404":
+          description: Project not found or archived
+
+    delete:
+      tags: [project]
+      summary: >
+        Permanently delete one project and all its transactions (cascade).
+        Unlike archive, this action is irreversible and removes all data from the database.
+        The deleted project is returned as confirmation.
+      operationId: deleteOneProject
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Deleted project — all associated transactions have also been deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Project not found or archived
+
+  /account/{accountId}/project/{projectId}/archive:
+    post:
+      tags: [project]
+      summary: >
+        Archive one project by id.
+        Unlike delete, data is preserved — project and all its transactions remain in the database.
+        Archiving is permanent — there is no unarchive endpoint.
+        Archived projects return 404 on getOneProject.
+        Use getAllProjects?isArchived=true to retrieve archived projects.
+      operationId: archiveOneProject
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Archived project — isArchived is now true, all data preserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Project not found or already archived
+
+  /account/{accountId}/project/{projectId}/transaction:
+    post:
+      tags: [project]
+      summary: >
+        Create a new expense entry for the specified project.
+        estimatedCost is required. realCost is optional (defaults to 0).
+        If walletId is provided AND realCost > 0, the wallet is immediately debited by realCost.
+        walletId can be updated later via PUT.
+      operationId: createOneProjectTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreationProjectTransaction"
+      responses:
+        "200":
+          description: Created project transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectTransaction"
+        "400":
+          description: Validation error (missing name or estimatedCost)
+        "404":
+          description: Project not found or archived
+
+    get:
+      tags: [project]
+      summary: >
+        Get all expense entries for a project.
+        Returns a flat array ordered by createdAt descending (no pagination).
+      operationId: getAllProjectTransactions
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Flat array of project transactions ordered by createdAt desc
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectTransaction"
+        "404":
+          description: Project not found or archived
+
+  /account/{accountId}/project/{projectId}/transaction/{transactionId}:
+    get:
+      tags: [project]
+      summary: Get one project transaction by id
+      operationId: getOneProjectTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ProjectTransactionId"
+      responses:
+        "200":
+          description: Project transaction found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectTransaction"
+        "404":
+          description: Project transaction not found
+
+    put:
+      tags: [project]
+      summary: >
+        Update one project transaction by id.
+        All fields are optional — only provided fields are updated.
+        Wallet adjustment logic: if realCost changes and a walletId is associated (from body or existing),
+        the wallet is debited or credited by the difference (newRealCost - oldRealCost).
+        Passing a new walletId in the body overrides the previously associated wallet.
+      operationId: updateOneProjectTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ProjectTransactionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectTransaction"
+      responses:
+        "200":
+          description: Updated project transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectTransaction"
+        "400":
+          description: Validation error
+        "404":
+          description: Project transaction not found
+
+    delete:
+      tags: [project]
+      summary: >
+        Permanently delete one project transaction by id.
+        If the transaction had a walletId and a realCost > 0,
+        the wallet is refunded by realCost before deletion.
+        This action is irreversible.
+      operationId: deleteOneProjectTransaction
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ProjectTransactionId"
+      responses:
+        "200":
+          description: Deleted project transaction — wallet refunded if applicable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectTransaction"
+        "404":
+          description: Project transaction not found
+
+  /account/{accountId}/project/{projectId}/statistics:
+    get:
+      tags: [project]
+      summary: >
+        Get budget statistics for one project.
+        Aggregates all project transactions to compute:
+        totalEstimatedCost (sum of estimatedCost),
+        totalRealCost (sum of realCost),
+        remainingBudget = initialBudget - totalRealCost (can be negative if over budget),
+        transactionCount.
+        All amounts in FCFA.
+      operationId: getProjectStatistics
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project budget statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectStatistics"
+        "404":
+          description: Project not found or archived
+
+  /account/{accountId}/project/{projectId}/pdf/statistics:
+    get:
+      tags: [project]
+      summary: >
+        Download a PDF report of project budget statistics.
+        All amounts displayed in FCFA.
+        Includes project info, budget figures, and usage percentages.
+      operationId: downloadProjectStatisticsPDF
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: PDF file — budget statistics report
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="statistics-{projectId}.pdf"'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Project not found or archived
+
+  /account/{accountId}/project/{projectId}/pdf/invoice:
+    get:
+      tags: [project]
+      summary: >
+        Download a PDF invoice listing all project transactions.
+        Includes a table with each transaction's name, description, estimatedCost and realCost,
+        plus totals and remaining budget. All amounts in FCFA.
+      operationId: downloadProjectInvoicePDF
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: PDF file — detailed invoice with transaction table
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="invoice-{projectId}.pdf"'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Project not found or archived
+
+  /account/{accountId}/project/{projectId}/pdf/summary:
+    get:
+      tags: [project]
+      summary: >
+        Download a visual PDF summary of the project.
+        Includes a budget progress bar showing real cost vs initial budget.
+        The bar turns red if real costs exceed the initial budget.
+        All amounts in FCFA.
+      operationId: downloadProjectSummaryPDF
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: PDF file — visual summary with budget progress bar
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="summary-{projectId}.pdf"'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Project not found or archived
+
+  # ─── CONFIGURATION ────────────────────────────────────────────────────────────
+  /account/{accountId}/configuration:
+    get:
+      tags: [configuration]
+      summary: >
+        Get the current configuration for the specified account.
+        If no configuration exists yet, one is automatically created with default values:
+        currency=MGA, loginWithoutPassword=false, reccurency=1, countDays=1.
+        The subscription field is null if no subscription has been activated.
+      operationId: getConfiguration
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: Current configuration (created if not existing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Configuration"
+
+    put:
+      tags: [configuration]
+      summary: >
+        Update the basic configuration for the specified account.
+        Updates currency and/or loginWithoutPassword.
+        currency must be one of MGA, USD, EUR.
+      operationId: updateBasicConfiguration
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BasicConfiguration"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Configuration"
+        "400":
+          description: Invalid currency value or validation error
+
+  /account/{accountId}/configuration/transaction:
+    put:
+      tags: [configuration]
+      summary: >
+        Update the transaction notification configuration for the specified account.
+        reccurency and countDays must each be between 0 and 365.
+      operationId: updateTransactionConfiguration
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionConfiguration"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Configuration"
+        "400":
+          description: reccurency or countDays out of range (0-365)
+
+  # ─── SUBSCRIPTION ─────────────────────────────────────────────────────────────
+  /account/{accountId}/subscription:
+    post:
+      tags: [configuration]
+      summary: >
+        Activate a subscription on the specified account using a token.
+        The token must have been previously generated via POST /subscription/token.
+        Links the Subscription to the account's Configuration.
+        Returns the updated Configuration including the now-active subscription.
+        subscription.isActive is computed: true if current date < endingDate.
+      operationId: addSubscription
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionInput"
+      responses:
+        "200":
+          description: Subscription activated — returns updated Configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Configuration"
+        "400":
+          description: Token does not exist
+
+  /account/{accountId}/subscription/token:
+    post:
+      tags: [configuration]
+      summary: >
+        Generate a new subscription token for the specified account.
+        The token is a UUID valid for 1 month from creation.
+        This token must then be activated on an account via POST /subscription.
+      operationId: generateSubscriptionToken
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: Generated subscription token with its expiry date
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionResult"
+
+# ─── COMPONENTS ───────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT token obtained from POST /auth/sign-in. Valid for 10 hours.
+        The token embeds id, username and email.
+        All protected routes verify that the accountId in the path matches the token's id.
+
+  parameters:
+    AccountId:
+      name: accountId
+      required: true
+      in: path
+      description: UUID of the authenticated account — must match the JWT token's id
+      schema:
+        type: string
+        format: uuid
+
+    LabelId:
+      name: labelId
+      required: true
+      in: path
+      schema:
+        type: string
+        format: uuid
+
+    TransactionId:
+      name: transactionId
+      required: true
+      in: path
+      schema:
+        type: string
+        format: uuid
+
+    WalletId:
+      name: walletId
+      required: true
+      in: path
+      schema:
+        type: string
+        format: uuid
+
+    GoalId:
+      name: goalId
+      required: true
+      in: path
+      schema:
+        type: string
+        format: uuid
+
+    ProjectId:
+      name: projectId
+      required: true
+      in: path
+      schema:
+        type: string
+        format: uuid
+
+    ProjectTransactionId:
+      name: transactionId
+      required: true
+      in: path
+      description: >
+        UUID of the project transaction.
+        Distinct from wallet transaction — belongs to the ProjectTransaction model.
+      schema:
+        type: string
+        format: uuid
+
+    Page:
+      name: page
+      required: false
+      in: query
+      description: Page number (1-based). Injected by paginationHandler middleware.
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+
+    PageSize:
+      name: pageSize
+      required: false
+      in: query
+      description: Number of items per page. Injected by paginationHandler middleware.
+      schema:
+        type: integer
+        default: 10
+        minimum: 1
+
+    Name:
+      name: name
+      required: false
+      in: query
+      description: Partial name filter (case-insensitive contains)
+      schema:
+        type: string
+
+    IsActive:
+      name: isActive
+      required: false
+      in: query
+      description: Filter wallets by active status
+      schema:
+        type: boolean
+
+    ProjectIsArchived:
+      name: isArchived
+      required: false
+      in: query
+      description: >
+        Filter projects by archive status.
+        Defaults to false (only active projects).
+        Pass true to retrieve archived projects.
+      schema:
+        type: boolean
+        default: false
+
+    WalletType:
+      name: walletType
+      required: false
+      in: query
+      schema:
+        type: string
+        enum: [CASH, MOBILE_MONEY, BANK, DEBT]
+
+    QueryWalletId:
+      name: walletId
+      required: false
+      in: query
+      description: Filter by wallet UUID
+      schema:
+        type: string
+        format: uuid
+
+    StartingDate:
+      name: startingDate
+      required: false
+      in: query
+      description: Filter transactions with date >= startingDate
+      schema:
+        type: string
+        format: date-time
+
+    EndingDate:
+      name: endingDate
+      required: false
+      in: query
+      description: Filter transactions with date <= endingDate
+      schema:
+        type: string
+        format: date-time
+
+    StartingDateBeginning:
+      name: startingDateBeginning
+      required: false
+      in: query
+      description: Filter goals whose startingDate >= this value
+      schema:
+        type: string
+        format: date-time
+
+    StartingDateEnding:
+      name: startingDateEnding
+      required: false
+      in: query
+      description: Filter goals whose startingDate <= this value
+      schema:
+        type: string
+        format: date-time
+
+    EndingDateBeginning:
+      name: endingDateBeginning
+      required: false
+      in: query
+      description: Filter goals whose endingDate >= this value
+      schema:
+        type: string
+        format: date-time
+
+    EndingDateEnding:
+      name: endingDateEnding
+      required: false
+      in: query
+      description: Filter goals whose endingDate <= this value
+      schema:
+        type: string
+        format: date-time
+
+    TransactionType:
+      name: type
+      required: false
+      in: query
+      schema:
+        type: string
+        enum: [IN, OUT]
+
+    TransactionLabel:
+      name: label
+      required: false
+      in: query
+      description: Filter by one or more label UUIDs
+      schema:
+        type: array
+        items:
+          type: string
+          format: uuid
+
+    MinAmount:
+      name: minAmount
+      required: false
+      in: query
+      schema:
+        type: number
+        format: double
+
+    MaxAmount:
+      name: maxAmount
+      required: false
+      in: query
+      schema:
+        type: number
+        format: double
+
+    TransactionSortBy:
+      name: sortBy
+      required: false
+      in: query
+      schema:
+        type: string
+        enum: [date, amount]
+
+    GoalSortBy:
+      name: sortBy
+      required: false
+      in: query
+      description: Field to sort by. Defaults to createdAt if not provided.
+      schema:
+        type: string
+        enum: [startingDate, endingDate, name, createdAt, amount]
+
+    Sort:
+      name: sort
+      required: false
+      in: query
+      description: Sort direction. Defaults to desc if not provided.
+      schema:
+        type: string
+        enum: [asc, desc]
+
+  schemas:
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    GoogleSignInCredentials:
+      type: object
+      required: [idToken]
+      properties:
+        idToken:
+          type: string
+          minLength: 1
+          description: >
+            Google id_token obtained from the Google Sign-In SDK on the client
+            (Android, iOS, or Web). This token is verified server-side against
+            GOOGLE_CLIENT_ID using the google-auth-library.
+
+    SignInCredentials:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Must be a valid email address
+        password:
+          type: string
+          minLength: 8
+
+    SignUpCredentials:
+      type: object
+      required: [email, password, username]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Must be unique across all accounts
+        password:
+          type: string
+          minLength: 8
+        username:
+          type: string
+          minLength: 4
+          description: Must be unique across all accounts
+
+    SignUpResult:
+      type: object
+      description: Account info returned after sign-up or embedded in SignInResult. Password is never returned.
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+
+    SignInResult:
+      type: object
+      properties:
+        account:
+          $ref: "#/components/schemas/SignUpResult"
+        token:
+          type: string
+          description: >
+            JWT token valid for 10 hours.
+            Use as Bearer in the Authorization header for all protected routes.
+            Embeds id, username and email.
+
+    # ── Health ────────────────────────────────────────────────────────────────
+    HealthResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: integer
+          description: Server uptime in seconds
+        database:
+          type: string
+          enum: [connected]
+        responseTime:
+          type: string
+          example: "4ms"
+          description: Time taken to ping the database
+
+    HealthErrorResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [error]
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: integer
+          description: Server uptime in seconds
+        database:
+          type: string
+          enum: [disconnected]
+        error:
+          type: string
+          description: Error message from the database connection attempt
+
+    # ── Pagination ────────────────────────────────────────────────────────────
+    PaginationResult:
+      type: object
+      properties:
+        totalPage:
+          type: integer
+          minimum: 1
+        page:
+          type: integer
+          minimum: 1
+        hasNext:
+          type: boolean
+        hasPrev:
+          type: boolean
+
+    # ── Label ─────────────────────────────────────────────────────────────────
+    CreationLabel:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: FOOD
+        color:
+          type: string
+          example: "#00ff00"
+          default: "#00ff00"
+        iconRef:
+          type: string
+
+    Label:
+      allOf:
+        - $ref: "#/components/schemas/CreationLabel"
+      properties:
+        id:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+          readOnly: true
+          description: >
+            Indicates whether this label has been archived.
+            Archived labels are excluded from getAllLabels and return 404 on getOneLabel.
+            Archiving is permanent — there is no unarchive endpoint.
+            Returned in all label responses (create, update, getOne, archive, getAll).
+
+    GetAllLabelsResponse:
+      type: object
+      properties:
+        pagination:
+          $ref: "#/components/schemas/PaginationResult"
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/Label"
+
+    # ── Wallet ────────────────────────────────────────────────────────────────
+    CreationWallet:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+          example: Personal
+        description:
+          type: string
+        type:
+          type: string
+          enum: [CASH, MOBILE_MONEY, BANK, DEBT]
+        color:
+          type: string
+          example: "#00ff00"
+          default: "#00ff00"
+        iconRef:
+          type: string
+
+    UpdateWallet:
+      type: object
+      required: [name, type, isActive, accountId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+          description: Must match the authenticated account. Used for ownership verification.
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [CASH, MOBILE_MONEY, BANK, DEBT]
+        color:
+          type: string
+        iconRef:
+          type: string
+        isActive:
+          type: boolean
+          description: Whether the wallet is active. Defaults to true at creation.
+
+    Wallet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [CASH, MOBILE_MONEY, BANK, DEBT]
+        color:
+          type: string
+        iconRef:
+          type: string
+        isActive:
+          type: boolean
+        isArchived:
+          type: boolean
+          readOnly: true
+          description: >
+            Indicates whether this wallet has been archived.
+            Archived wallets are excluded from getAllWallets and return 404 on getOneWallet.
+            Archiving is permanent — there is no unarchive endpoint.
+        amount:
+          type: number
+          format: double
+          readOnly: true
+          description: >
+            Current balance computed from transactions.
+            Cannot be set directly — managed exclusively via transaction create/delete.
+        walletAutomaticIncome:
+          $ref: "#/components/schemas/WalletAutomaticIncome"
+
+    GetAllWalletsResponse:
+      type: object
+      properties:
+        pagination:
+          $ref: "#/components/schemas/PaginationResult"
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/Wallet"
+
+    WalletAutomaticIncome:
+      type: object
+      required: [type]
+      description: >
+        Automatic income configuration for a wallet.
+        Only two frequencies: MENSUAL (monthly) and NOT_SPECIFIED (disabled).
+        Note: the backend stores this configuration only — no scheduled job applies
+        the income automatically in the current implementation.
+      properties:
+        type:
+          type: string
+          enum: [NOT_SPECIFIED, MENSUAL]
+          description: >
+            MENSUAL — activates monthly income (amount and paymentDay become required).
+            NOT_SPECIFIED — disables automatic income (amount reset to 0, paymentDay reset to null).
+        amount:
+          type: number
+          description: Amount to add to the wallet each month. Required when type=MENSUAL.
+        paymentDay:
+          type: integer
+          minimum: 1
+          maximum: 31
+          description: >
+            Day of the month the income is applied (1-31).
+            Required when type=MENSUAL. Ignored when type=NOT_SPECIFIED.
+
+    # ── Transaction ───────────────────────────────────────────────────────────
+    CreationTransaction:
+      type: object
+      required: [date, type, amount, labels]
+      properties:
+        date:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [IN, OUT]
+          description: IN increases wallet amount, OUT decreases it
+        description:
+          type: string
+        amount:
+          type: number
+          format: double
+          minimum: 1
+        walletId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        goalId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Optional link to a goal. If the goal is deleted, this field is set to null (cascade).
+        labels:
+          type: array
+          minItems: 1
+          description: At least one label is required
+          items:
+            $ref: "#/components/schemas/Label"
+
+    Transaction:
+      allOf:
+        - $ref: "#/components/schemas/CreationTransaction"
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    # ── Goal ──────────────────────────────────────────────────────────────────
+    CreationGoal:
+      type: object
+      required: [name, amount, startingDate, endingDate, walletId]
+      properties:
+        name:
+          type: string
+          example: February resolution
+        amount:
+          type: number
+          minimum: 1
+        walletId:
+          type: string
+          format: uuid
+          description: Must match the walletId path parameter
+        startingDate:
+          type: string
+          format: date-time
+        endingDate:
+          type: string
+          format: date-time
+          description: Must be after or equal to startingDate
+        color:
+          type: string
+          default: "#00ff00"
+        iconRef:
+          type: string
+
+    Goal:
+      allOf:
+        - $ref: "#/components/schemas/CreationGoal"
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+          readOnly: true
+          description: >
+            Indicates whether this goal has been archived.
+            Archived goals are excluded from getAllGoals and return 404 on getOneGoal.
+            Archiving is permanent — there is no unarchive endpoint.
+
+    GetAllGoalsResponse:
+      type: object
+      properties:
+        pagination:
+          $ref: "#/components/schemas/PaginationResult"
+        values:
+          type: array
+          items:
+            $ref: "#/components/schemas/Goal"
+
+    # ── Project ───────────────────────────────────────────────────────────────
+    CreationProject:
+      type: object
+      required: [name, initialBudget]
+      properties:
+        name:
+          type: string
+          example: Renovation Maison
+        description:
+          type: string
+          example: Renovation de la cuisine
+        initialBudget:
+          type: integer
+          minimum: 0
+          example: 5000000
+          description: Initial budget in FCFA
+        color:
+          type: string
+          example: "#FF5733"
+          default: "#00ff00"
+        iconRef:
+          type: string
+
+    Project:
+      allOf:
+        - $ref: "#/components/schemas/CreationProject"
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        isArchived:
+          type: boolean
+          readOnly: true
+          description: >
+            Indicates whether this project has been archived.
+            Archive preserves all data (project + transactions remain in database).
+            Delete (DELETE /{projectId}) permanently removes all data including transactions.
+            Archiving is permanent — there is no unarchive endpoint.
+            Archived projects return 404 on getOneProject.
+            Use getAllProjects?isArchived=true to retrieve archived projects.
+
+    # ── ProjectTransaction ────────────────────────────────────────────────────
+    CreationProjectTransaction:
+      type: object
+      required: [name, estimatedCost]
+      properties:
+        name:
+          type: string
+          example: Achat Matériaux
+        description:
+          type: string
+          example: Ciment, sable, briques
+        estimatedCost:
+          type: integer
+          minimum: 0
+          example: 500000
+          description: Forecasted cost in FCFA, set before the expense is made
+        realCost:
+          type: integer
+          minimum: 0
+          default: 0
+          example: 520000
+          description: >
+            Actual cost in FCFA. Optional — defaults to 0.
+            If walletId is also provided and realCost > 0, the wallet is immediately debited.
+        walletId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Optional wallet to debit when realCost > 0.
+            If provided at creation and realCost > 0, the wallet is immediately debited.
+            Can be changed via PUT. Set to null to detach the wallet.
+            On delete, if walletId is set and realCost > 0, the wallet is refunded.
+
+    UpdateProjectTransaction:
+      type: object
+      description: >
+        All fields are optional — only provided fields are updated.
+        Typical use: update realCost after the expense has been made.
+        If realCost changes and a wallet is associated, the wallet is adjusted by the difference.
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        estimatedCost:
+          type: integer
+          minimum: 0
+        realCost:
+          type: integer
+          minimum: 0
+        walletId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Provide to override the associated wallet. Set null to detach.
+
+    ProjectTransaction:
+      allOf:
+        - $ref: "#/components/schemas/CreationProjectTransaction"
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        walletId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            The wallet linked to this expense entry.
+            Null if no wallet is associated. Set to null automatically if the wallet is deleted.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── ProjectStatistics ─────────────────────────────────────────────────────
+    ProjectStatistics:
+      type: object
+      description: >
+        Budget statistics aggregated from all ProjectTransactions of a project.
+        remainingBudget = initialBudget - totalRealCost.
+        A negative remainingBudget means the project is over budget.
+        All amounts in FCFA.
+      properties:
+        project:
+          $ref: "#/components/schemas/Project"
+        totalEstimatedCost:
+          type: integer
+          description: Sum of estimatedCost across all project transactions
+        totalRealCost:
+          type: integer
+          description: Sum of realCost across all project transactions
+        remainingBudget:
+          type: integer
+          description: initialBudget minus totalRealCost. Negative means over budget.
+        transactionCount:
+          type: integer
+          description: Total number of project transactions
+
+    # ── Configuration ─────────────────────────────────────────────────────────
+    BasicConfiguration:
+      type: object
+      description: Basic account preferences — currency and passwordless login toggle
+      properties:
+        currency:
+          type: string
+          enum: [MGA, USD, EUR]
+          description: Display currency for the account. Defaults to MGA at creation.
+        loginWithoutPassword:
+          type: boolean
+          description: >
+            Activate or deactivate passwordless login.
+            Defaults to false at creation.
+
+    TransactionConfiguration:
+      type: object
+      description: >
+        Configuration for transaction notification behavior.
+        reccurency and countDays must each be between 0 and 365.
+      properties:
+        reccurency:
+          type: integer
+          minimum: 0
+          maximum: 365
+          description: Transaction notification recurrency (days/months/years)
+        countDays:
+          type: integer
+          minimum: 0
+          maximum: 365
+          description: Number of days to look back when counting transactions for notifications
+
+    ConfigurationSubscription:
+      type: object
+      description: >
+        Subscription status embedded in Configuration.
+        isActive is computed at response time: true if current date < endingDate.
+      properties:
+        isActive:
+          type: boolean
+          description: True if current date is before endingDate
+        endingDate:
+          type: string
+          format: date-time
+          description: Date and time when the subscription expires
+
+    Configuration:
+      type: object
+      description: >
+        Full account configuration. Automatically created with defaults on first GET if not existing.
+        Default values: currency=MGA, loginWithoutPassword=false, reccurency=1, countDays=1.
+        subscription is null if no subscription has been activated on this account.
+      properties:
+        currency:
+          type: string
+          enum: [MGA, USD, EUR]
+        loginWithoutPassword:
+          type: boolean
+        transaction:
+          $ref: "#/components/schemas/TransactionConfiguration"
+        subscription:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ConfigurationSubscription"
+
+    # ── Subscription ──────────────────────────────────────────────────────────
+    SubscriptionInput:
+      type: object
+      required: [token]
+      description: Token used to activate a subscription on an account
+      properties:
+        token:
+          type: string
+          format: uuid
+          description: Token previously generated via POST /subscription/token
+
+    SubscriptionResult:
+      type: object
+      description: >
+        Result of POST /subscription/token.
+        Contains the generated token and its expiry date (1 month from creation).
+        The token must then be activated on an account via POST /subscription.
+      properties:
+        token:
+          type: string
+          format: uuid
+        endingDate:
+          type: string
+          format: date-time
+          description: Expiry date — 1 month from creation time
