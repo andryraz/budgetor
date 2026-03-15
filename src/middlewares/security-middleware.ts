@@ -1,5 +1,5 @@
 import { RequestHandler } from "express";
-import * as jwt from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 
 import { ApiError } from "@/errors";
 

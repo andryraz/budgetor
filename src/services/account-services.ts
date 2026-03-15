@@ -1,6 +1,6 @@
 import { Account } from "@prisma/client";
-import * as bcrypt from "bcryptjs";
-import * as jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 import { getPrismaClient } from "@/configs";
 import { googleClient } from "@/configs";

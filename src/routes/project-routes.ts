@@ -1,4 +1,4 @@
-import * as express from "express";
+import express from "express";
 
 import { ProjectController } from "@/controllers";
 import { paginationHandler } from "@/middlewares";
