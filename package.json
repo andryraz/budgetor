@@ -13,6 +13,9 @@
     "gen:client": "./generate-client.sh",
     "studio": "prisma studio"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

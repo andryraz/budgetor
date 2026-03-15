@@ -6,3 +6,6 @@ buildCommand = "npm install && npm run build"
 startCommand = "npm run start"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+[environment]
+NODE_VERSION = "20"
