@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon --watch './*' --exec ts-node src/index.ts",
     "build": "tsc && tsc-alias",
-    "start": "npm run build && npx prisma migrate deploy && node dist/index.js",
+    "start": "npm run build && npx prisma migrate deploy && node dist/src/index.js",
     "format": "prettier --write \"./**/*.{ts,json}\" --config \".prettierrc.json\"",
     "migrate:dev": "prisma migrate dev",
     "migrate:prod": "prisma migrate prod",
